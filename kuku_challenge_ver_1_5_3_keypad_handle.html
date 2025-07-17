@@ -1,0 +1,138 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>九九チャレンジ：テンキー(ドラッグバー付き) Ver 1.5.3</title>
+<style>
+  body { font-family: 'Arial', sans-serif; background:#fffafc; text-align:center;}
+  h1 {font-size:22px;margin-top:8px;}
+  table {margin:auto;border-collapse:collapse;table-layout:fixed;width:540px;}
+  td,th{border:2px solid #333;width:50px;height:50px;text-align:center;}
+  input.answer{width:90%;height:90%;font-size:18px;text-align:center;background:#f5f5f5;border:none;font-weight:bold;}
+  input.selected{background:#ffffcc;} input.correct{background:#c8f7c5;} input.incorrect{background:#f7c5c5;}
+
+  /* keypad */
+  #keypad{
+    position:fixed;
+    bottom:20px;
+    right:20px;
+    transform:translate(0,0);
+    background:#fff;
+    padding:10px 10px 6px 10px;
+    border:2px solid #888;
+    border-radius:12px;
+    box-shadow:2px 2px 8px rgba(0,0,0,.3);
+    touch-action:none;
+    display:grid;
+    grid-template-columns:repeat(3,50px);
+    gap:3px;
+  }
+  #dragbar{
+    grid-column:1/4;
+    height:12px;
+    margin-bottom:4px;
+    background:#ddd;
+    border-radius:6px;
+    cursor:move;
+  }
+  #keypad button{
+    width:50px;height:50px;font-size:18px;border-radius:8px;
+  }
+</style>
+</head>
+<body>
+<h1>九九チャレンジ：テンキー &amp; キーボード (Ver 1.5.3)</h1>
+<p>セル選択▶︎入力。テンキー右上バーをドラッグで移動。</p>
+<table id="multiplicationTable"></table>
+
+<!-- テンキーパッド -->
+<div id="keypad">
+  <div id="dragbar" title="ここをドラッグして移動"></div>
+  <button onclick="pressKey('1')">1</button><button onclick="pressKey('2')">2</button><button onclick="pressKey('3')">3</button>
+  <button onclick="pressKey('4')">4</button><button onclick="pressKey('5')">5</button><button onclick="pressKey('6')">6</button>
+  <button onclick="pressKey('7')">7</button><button onclick="pressKey('8')">8</button><button onclick="pressKey('9')">9</button>
+  <button onclick="pressKey('0')">0</button><button onclick="pressKey('del')">⌫</button><button onclick="pressKey('enter')">⏎</button>
+</div>
+
+<script>
+let selectedInput=null;
+let grid=[];
+
+/* table */
+function generateTable(){
+  const tbl=document.getElementById('multiplicationTable');
+  tbl.innerHTML=''; grid=[];
+  const head=document.createElement('tr');
+  head.appendChild(document.createElement('th'));
+  for(let i=1;i<=9;i++){const th=document.createElement('th');th.textContent=i;head.appendChild(th);}
+  tbl.appendChild(head);
+  for(let r=0;r<9;r++){
+    const tr=document.createElement('tr');
+    const rh=document.createElement('th');rh.textContent=r+1;tr.appendChild(rh);
+    const row=[];
+    for(let c=0;c<9;c++){
+      const td=document.createElement('td');
+      const inp=document.createElement('input');
+      inp.className='answer'; inp.dataset.answer=(r+1)*(c+1); inp.readOnly=true;
+      inp.addEventListener('click',()=>selectCell(inp));
+      td.appendChild(inp); tr.appendChild(td); row.push(inp);
+    }
+    grid.push(row); tbl.appendChild(tr);
+  }
+}
+function selectCell(inp){
+  if(selectedInput){selectedInput.classList.remove('selected'); selectedInput.readOnly=true;}
+  selectedInput=inp; inp.classList.remove('incorrect'); inp.classList.add('selected'); inp.readOnly=false; inp.focus();
+}
+
+/* keypad / keyboard input */
+function pressKey(k){
+  if(!selectedInput)return;
+  if(k==='del'){selectedInput.value=''; return;}
+  if(k==='enter'){commit(); return;}
+  if(selectedInput.value.length<2) selectedInput.value+=k;
+}
+document.addEventListener('keydown',e=>{
+  if(!selectedInput)return;
+  if(e.key>='0'&&e.key<='9'){if(selectedInput.value.length<2)selectedInput.value+=e.key;}
+  else if(e.key==='Backspace'){selectedInput.value=''; e.preventDefault();}
+  else if(e.key==='Enter'){e.preventDefault(); commit();}
+});
+function commit(){
+  const val=parseInt(selectedInput.value), ans=parseInt(selectedInput.dataset.answer);
+  if(val===ans){
+    selectedInput.classList.remove('selected'); selectedInput.classList.add('correct'); selectedInput.readOnly=true;
+    moveNextEmpty();
+  }else selectedInput.classList.add('incorrect');
+}
+function moveNextEmpty(){
+  const flat=grid.flat(); const idx=flat.indexOf(selectedInput);
+  for(let i=idx+1;i<flat.length;i++){if(flat[i].value===''){selectCell(flat[i]);return;}}
+  selectedInput=null;
+}
+
+/* draggable via handle */
+const kp=document.getElementById('keypad');
+const dragbar=document.getElementById('dragbar');
+let startX=0,startY=0,baseX=0,baseY=0;
+dragbar.addEventListener('pointerdown',e=>{
+  startX=e.clientX; startY=e.clientY;
+  dragbar.setPointerCapture(e.pointerId);
+});
+dragbar.addEventListener('pointermove',e=>{
+  if(e.buttons===0)return;
+  const dx=e.clientX-startX, dy=e.clientY-startY;
+  kp.style.transform=`translate(${baseX+dx}px,${baseY+dy}px)`;
+  if(e.pointerType==='touch')e.preventDefault();
+});
+dragbar.addEventListener('pointerup',e=>{
+  const dx=e.clientX-startX, dy=e.clientY-startY;
+  baseX+=dx; baseY+=dy;
+  dragbar.releasePointerCapture(e.pointerId);
+});
+
+window.addEventListener('load',generateTable);
+</script>
+</body>
+</html>
