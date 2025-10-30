@@ -3,10 +3,19 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>九九チャレンジ：テンキー(ドラッグバー付き) Ver 1.5.3</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#ff69b4">
+<link rel="manifest" href="manifest.json">
+<title>九九チャレンジ：小学生向けMVP Ver 2.0</title>
 <style>
-  body { font-family: 'Arial', sans-serif; background:#fffafc; text-align:center;}
-  h1 {font-size:22px;margin-top:8px;}
+  body { font-family: 'Arial', sans-serif; background:#fffafc; text-align:center; margin:0; padding:10px;}
+  h1 {font-size:24px;margin-top:8px;color:#333;}
+  .stats {margin:12px auto; padding:10px; background:#fff; border-radius:8px; max-width:540px; box-shadow:0 2px 4px rgba(0,0,0,0.1);}
+  .stats h2 {font-size:18px; margin:4px 0;}
+  .stats p {font-size:16px; margin:4px 0;}
+  .weak-pairs {display:flex; gap:8px; justify-content:center; margin-top:8px;}
+  .weak-item {background:#ffebee; padding:6px 12px; border-radius:6px; font-size:14px; font-weight:bold;}
+
   table {margin:auto;border-collapse:collapse;table-layout:fixed;width:540px;}
   td,th{border:2px solid #333;width:50px;height:50px;text-align:center;}
   input.answer{width:90%;height:90%;font-size:18px;text-align:center;background:#f5f5f5;border:none;font-weight:bold;}
@@ -25,25 +34,38 @@
     box-shadow:2px 2px 8px rgba(0,0,0,.3);
     touch-action:none;
     display:grid;
-    grid-template-columns:repeat(3,50px);
-    gap:3px;
+    grid-template-columns:repeat(3,64px);
+    gap:4px;
+    z-index:1000;
   }
   #dragbar{
     grid-column:1/4;
-    height:12px;
-    margin-bottom:4px;
+    height:16px;
+    margin-bottom:6px;
     background:#ddd;
     border-radius:6px;
     cursor:move;
   }
   #keypad button{
-    width:50px;height:50px;font-size:18px;border-radius:8px;
+    width:64px;height:64px;font-size:22px;border-radius:8px;border:2px solid #666;
+    background:#f0f0f0;cursor:pointer;font-weight:bold;
   }
+  #keypad button:active{background:#ddd;}
+  #keypad .special{background:#ffeb3b;font-size:20px;}
+  #keypad .enter{background:#4caf50;color:#fff;font-size:20px;}
 </style>
 </head>
 <body>
-<h1>九九チャレンジ：テンキー &amp; キーボード (Ver 1.5.3)</h1>
-<p>セル選択▶︎入力。テンキー右上バーをドラッグで移動。</p>
+<h1>九九チャレンジ 🎯</h1>
+<div class="stats">
+  <h2>今日の練習</h2>
+  <p>正解: <span id="correctCount">0</span>問 / 不正解: <span id="incorrectCount">0</span>問</p>
+  <div id="weakSection" style="display:none;">
+    <p style="font-weight:bold;margin-top:8px;">📊 苦手な問題 Top3</p>
+    <div class="weak-pairs" id="weakPairs"></div>
+  </div>
+</div>
+<p style="font-size:16px;">セル選択 → 答えを入力 🎤 自動読み上げ付き</p>
 <table id="multiplicationTable"></table>
 
 <!-- テンキーパッド -->
@@ -52,14 +74,78 @@
   <button onclick="pressKey('1')">1</button><button onclick="pressKey('2')">2</button><button onclick="pressKey('3')">3</button>
   <button onclick="pressKey('4')">4</button><button onclick="pressKey('5')">5</button><button onclick="pressKey('6')">6</button>
   <button onclick="pressKey('7')">7</button><button onclick="pressKey('8')">8</button><button onclick="pressKey('9')">9</button>
-  <button onclick="pressKey('0')">0</button><button onclick="pressKey('del')">⌫</button><button onclick="pressKey('enter')">⏎</button>
+  <button onclick="pressKey('0')">0</button><button class="special" onclick="pressKey('del')">⌫</button><button class="enter" onclick="pressKey('enter')">OK</button>
 </div>
 
 <script>
+// ==================== State ====================
 let selectedInput=null;
 let grid=[];
+let stats = { correct:0, incorrect:0, weakPairs:{} };
 
-/* table */
+// ==================== Web Speech API ====================
+function speak(text){
+  if(!window.speechSynthesis)return;
+  speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'ja-JP';
+  utterance.rate = 0.8;
+  utterance.pitch = 1.1;
+  utterance.volume = 1.0;
+  speechSynthesis.speak(utterance);
+}
+
+// ==================== localStorage ====================
+function loadStats(){
+  try{
+    const saved = localStorage.getItem('kuku_stats');
+    if(saved) stats = JSON.parse(saved);
+  }catch(e){console.error('localStorage load error:',e);}
+  updateStatsDisplay();
+}
+function saveStats(){
+  try{
+    localStorage.setItem('kuku_stats', JSON.stringify(stats));
+  }catch(e){console.error('localStorage save error:',e);}
+  updateStatsDisplay();
+}
+
+// ==================== 弱点抽出ロジック ====================
+function updateWeakPair(a,b,isCorrect){
+  const key = `${a}x${b}`;
+  if(!stats.weakPairs[key]) stats.weakPairs[key] = {a,b,weight:0};
+  if(isCorrect){
+    stats.weakPairs[key].weight = Math.max(0, stats.weakPairs[key].weight - 0.5);
+  }else{
+    stats.weakPairs[key].weight += 1;
+  }
+}
+function getTop3WeakPairs(){
+  const pairs = Object.values(stats.weakPairs).filter(p=>p.weight>0);
+  pairs.sort((x,y)=>y.weight-x.weight);
+  return pairs.slice(0,3);
+}
+
+// ==================== UI更新 ====================
+function updateStatsDisplay(){
+  document.getElementById('correctCount').textContent = stats.correct;
+  document.getElementById('incorrectCount').textContent = stats.incorrect;
+
+  const top3 = getTop3WeakPairs();
+  const weakSection = document.getElementById('weakSection');
+  const weakPairs = document.getElementById('weakPairs');
+
+  if(top3.length>0){
+    weakSection.style.display = 'block';
+    weakPairs.innerHTML = top3.map(p=>
+      `<div class="weak-item">${p.a}×${p.b} (${p.weight.toFixed(1)})</div>`
+    ).join('');
+  }else{
+    weakSection.style.display = 'none';
+  }
+}
+
+// ==================== Table ====================
 function generateTable(){
   const tbl=document.getElementById('multiplicationTable');
   tbl.innerHTML=''; grid=[];
@@ -74,45 +160,85 @@ function generateTable(){
     for(let c=0;c<9;c++){
       const td=document.createElement('td');
       const inp=document.createElement('input');
-      inp.className='answer'; inp.dataset.answer=(r+1)*(c+1); inp.readOnly=true;
+      inp.className='answer';
+      inp.dataset.answer=(r+1)*(c+1);
+      inp.dataset.a=r+1;
+      inp.dataset.b=c+1;
+      inp.readOnly=true;
       inp.addEventListener('click',()=>selectCell(inp));
       td.appendChild(inp); tr.appendChild(td); row.push(inp);
     }
     grid.push(row); tbl.appendChild(tr);
   }
 }
+
 function selectCell(inp){
   if(selectedInput){selectedInput.classList.remove('selected'); selectedInput.readOnly=true;}
-  selectedInput=inp; inp.classList.remove('incorrect'); inp.classList.add('selected'); inp.readOnly=false; inp.focus();
+  selectedInput=inp;
+  inp.classList.remove('incorrect');
+  inp.classList.add('selected');
+  inp.readOnly=false;
+  inp.focus();
+
+  // 読み上げ：「{a}かける{b}は？」
+  const a = inp.dataset.a;
+  const b = inp.dataset.b;
+  speak(`${a}かける${b}は？`);
 }
 
-/* keypad / keyboard input */
+// ==================== Input ====================
 function pressKey(k){
   if(!selectedInput)return;
   if(k==='del'){selectedInput.value=''; return;}
   if(k==='enter'){commit(); return;}
   if(selectedInput.value.length<2) selectedInput.value+=k;
 }
+
 document.addEventListener('keydown',e=>{
   if(!selectedInput)return;
-  if(e.key>='0'&&e.key<='9'){if(selectedInput.value.length<2)selectedInput.value+=e.key;}
+  if(e.key>='0'&&e.key<='9'){
+    if(selectedInput.value.length<2)selectedInput.value+=e.key;
+  }
   else if(e.key==='Backspace'){selectedInput.value=''; e.preventDefault();}
   else if(e.key==='Enter'){e.preventDefault(); commit();}
 });
+
 function commit(){
-  const val=parseInt(selectedInput.value), ans=parseInt(selectedInput.dataset.answer);
+  const val=parseInt(selectedInput.value);
+  const ans=parseInt(selectedInput.dataset.answer);
+  const a = parseInt(selectedInput.dataset.a);
+  const b = parseInt(selectedInput.dataset.b);
+
   if(val===ans){
-    selectedInput.classList.remove('selected'); selectedInput.classList.add('correct'); selectedInput.readOnly=true;
-    moveNextEmpty();
-  }else selectedInput.classList.add('incorrect');
-}
-function moveNextEmpty(){
-  const flat=grid.flat(); const idx=flat.indexOf(selectedInput);
-  for(let i=idx+1;i<flat.length;i++){if(flat[i].value===''){selectCell(flat[i]);return;}}
-  selectedInput=null;
+    // 正解
+    selectedInput.classList.remove('selected');
+    selectedInput.classList.add('correct');
+    selectedInput.readOnly=true;
+    stats.correct++;
+    updateWeakPair(a,b,true);
+    saveStats();
+    speak('すごい！');
+    setTimeout(moveNextEmpty, 600); // 0.6秒後に次へ
+  }else{
+    // 不正解
+    selectedInput.classList.add('incorrect');
+    stats.incorrect++;
+    updateWeakPair(a,b,false);
+    saveStats();
+  }
 }
 
-/* draggable via handle */
+function moveNextEmpty(){
+  const flat=grid.flat();
+  const idx=flat.indexOf(selectedInput);
+  for(let i=idx+1;i<flat.length;i++){
+    if(flat[i].value===''){selectCell(flat[i]);return;}
+  }
+  selectedInput=null;
+  speak('全部できたね！すごい！');
+}
+
+// ==================== Draggable Keypad ====================
 const kp=document.getElementById('keypad');
 const dragbar=document.getElementById('dragbar');
 let startX=0,startY=0,baseX=0,baseY=0;
@@ -132,7 +258,18 @@ dragbar.addEventListener('pointerup',e=>{
   dragbar.releasePointerCapture(e.pointerId);
 });
 
-window.addEventListener('load',generateTable);
+// ==================== Init ====================
+window.addEventListener('load',()=>{
+  loadStats();
+  generateTable();
+
+  // Service Worker 登録 (PWA)
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('./sw.js')
+      .then(reg=>console.log('SW registered:',reg.scope))
+      .catch(err=>console.error('SW registration failed:',err));
+  }
+});
 </script>
 </body>
 </html>
